@@ -1,0 +1,47 @@
+---
+- name: Deploy Automated Observability Stack
+  hosts: monitoring_servers
+  become: true
+  tasks:
+    - name: Update apt package cache
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install dependencies
+      package:
+        name:
+          - git
+          - docker.io
+          - docker-compose
+        state: present
+
+    - name: Ensure Docker service is running and enabled
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Create project directory structures
+      file:
+        path: /opt/monitoring-stack/dashboards
+        state: directory
+        mode: '0755'
+
+    - name: Template out Monitoring Configurations
+      copy:
+        dest: "/opt/monitoring-stack/{{ item.path }}"
+        content: "{{ item.content }}"
+        mode: '0644'
+      with_items:
+        - { path: 'prometheus.yml', content: "{{ lookup('file', '../prometheus.yml') }}" }
+        - { path: 'grafana-datasources.yml', content: "{{ lookup('file', '../grafana-datasources.yml') }}" }
+        - { path: 'docker-compose.yml', content: "{{ lookup('file', '../docker-compose.yml') }}" }
+
+    - name: Run Monitoring Stack via Docker Compose
+      community.docker.docker_compose:
+        project_src: /opt/monitoring-stack/
+        state: present
+      environment:
+        DD_API_KEY: "{{ lookup('env', 'DD_API_KEY') }}"
+        DD_SITE: "{{ lookup('env', 'DD_SITE') | default('datadoghq.com', true) }}"
